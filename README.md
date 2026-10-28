@@ -53,62 +53,136 @@ python -m unittest test_search.py
 
 The search engine is implemented in [`search_engine.py`](search_engine.py). It operates entirely locally and in-memory with sub-10ms response times.
 
+```mermaid
+graph TD
+    classDef input fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef layer fill:#0f172a,stroke:#334155,stroke-width:1px,color:#e2e8f0;
+    classDef engine fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#ecfdf5;
+    classDef policy fill:#451a03,stroke:#f59e0b,stroke-width:2px,color:#fef3c7;
+    classDef output fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#e0e7ff;
+
+    UserQuery(["👤 User Query<br><i>e.g. 'godavari milk', 'oil under 200'</i>"]):::input
+    Catalog[("📦 catalog.csv<br><i>1,102 products</i>")]:::input
+    Inventory[("📊 inventory.csv<br><i>1,070 stock records</i>")]:::input
+    SearchLog[("📈 search_log.jsonl<br><i>6,578 historical events</i>")]:::input
+
+    subgraph DataIngestion ["1. Data Ingestion & Hygiene Engine"]
+        Normalizer["Price & Unit Normalizer<br><i>Paise &rarr; Rupees conversion</i>"]:::layer
+        InvJoiner["Inventory Joiner<br><i>Stock level & ETA linkage</i>"]:::layer
+        LogMiner["Behavioral Graph Miner<br><i>Query &rarr; SKU click weights</i>"]:::layer
+    end
+
+    subgraph Indexing ["2. In-Memory Search Index"]
+        InvertedIndex["Inverted Index & Tokenizer<br><i>Field weights: Name(4x), Brand(3x), Cat(2x)</i>"]:::layer
+        BM25Model["BM25 Probabilistic Model<br><i>k1=1.5, b=0.75, IDF smoothing</i>"]:::layer
+    end
+
+    subgraph QueryUnderstanding ["3. Query Understanding & Intent Parser"]
+        BudgetParser["Regex Budget Parser<br><i>Extracts 'under 200' &rarr; max_price=200</i>"]:::layer
+        SynonymMapper["Linguistic & Regional Synonym Resolver<br><i>Telugu / Hindi: venna &rarr; butter, pesara pappu &rarr; moong dal</i>"]:::layer
+        BrandDetector["Brand Intent Lock<br><i>Recognizes Godavari, Gomatha, Deccan Gold, etc.</i>"]:::layer
+        HeadNounDisambiguator["Head-Noun vs Modifier Disambiguator<br><i>'milk' &rarr; Dairy vs 'milk chocolate' &rarr; Snacks</i>"]:::layer
+    end
+
+    subgraph ScoringEngine ["4. Multi-Signal Scoring Engine"]
+        LexicalScore["BM25 Lexical Score"]:::engine
+        FuzzyScore["Typo-Tolerant Sequence Matcher<br><i>Handles mobile typos like 'chocolaate', 'panner'</i>"]:::engine
+        BehavioralBoost["Search Log Ground-Truth Boost<br><i>Log-scaled past clicks & conversions</i>"]:::engine
+        PopularityPrior["Global SKU Popularity Prior"]:::engine
+    end
+
+    subgraph BusinessPolicy ["5. Business Policy & Re-Ranking Layer"]
+        BrandPolicy["Kavya's Brand Protection Rule<br><i>Requested brand: 3.0x boost | Thela Select: 0.3x</i>"]:::policy
+        PrivateLabelPolicy["Farah's House Label Rule<br><i>Generic query: Thela Select 1.3x margin boost</i>"]:::policy
+        BudgetPolicy["Budget Filter Enforcement<br><i>In-budget: 2.5x boost | Over-budget: 0.05x penalty</i>"]:::policy
+        StockPolicy["Sandeep vs Farah Inventory Gating<br><i>In-stock: 1.0x | Out-of-stock: 0.05x | Discontinued: 0.01x</i>"]:::policy
+    end
+
+    subgraph ServingInterfaces ["6. Presentation & Execution Interfaces"]
+        Top10(["🏆 Top 10 Ranked SKUs"]):::output
+        WebUI["FastAPI Web UI (app.py)<br><i>Interactive browser search with live badges</i>"]:::output
+        BatchCLI["Batch Runner (batch_search.py)<br><i>Generates results.jsonl for evaluation</i>"]:::output
+        TerminalCLI["Interactive CLI (cli.py)<br><i>Instant terminal search</i>"]:::output
+    end
+
+    Catalog --> Normalizer
+    Inventory --> InvJoiner
+    SearchLog --> LogMiner
+
+    Normalizer --> InvertedIndex
+    InvJoiner --> InvertedIndex
+    LogMiner --> InvertedIndex
+    InvertedIndex --> BM25Model
+
+    UserQuery --> BudgetParser
+    BudgetParser --> SynonymMapper
+    SynonymMapper --> BrandDetector
+    BrandDetector --> HeadNounDisambiguator
+
+    HeadNounDisambiguator --> LexicalScore
+    HeadNounDisambiguator --> FuzzyScore
+    HeadNounDisambiguator --> BehavioralBoost
+    BM25Model --> LexicalScore
+    LogMiner --> BehavioralBoost
+    LogMiner --> PopularityPrior
+
+    LexicalScore --> BrandPolicy
+    FuzzyScore --> BrandPolicy
+    BehavioralBoost --> BrandPolicy
+    PopularityPrior --> BrandPolicy
+
+    BrandPolicy --> PrivateLabelPolicy
+    PrivateLabelPolicy --> BudgetPolicy
+    BudgetPolicy --> StockPolicy
+
+    StockPolicy --> Top10
+    Top10 --> WebUI
+    Top10 --> BatchCLI
+    Top10 --> TerminalCLI
 ```
-                  ┌──────────────────────────────────────────────┐
-                  │                 User Query                   │
-                  │  (e.g., "godavari milk", "oil under 200")    │
-                  └──────────────────────┬───────────────────────┘
-                                         │
-                                         ▼
-                  ┌──────────────────────────────────────────────┐
-                  │          Query Intent Parsing                │
-                  │  • Price Budget: extract "under X"           │
-                  │  • Brand Intent: identify requested brand    │
-                  │  • Semantic Hierarchy: noun vs modifier      │
-                  │  • Regional Synonyms: Telugu/Hindi mapping   │
-                  └──────────────────────┬───────────────────────┘
-                                         │
-                                         ▼
-                  ┌──────────────────────────────────────────────┐
-                  │          Multi-Signal Scoring                │
-                  │  1. Inverted Index BM25 Lexical Match        │
-                  │  2. Behavioral Search Log Boost (CTR/Clicks) │
-                  │  3. Typo-Tolerant Sequence Match             │
-                  │  4. Exact Phrase & Token Alignment           │
-                  │  5. Global Popularity Prior (log-scaled)     │
-                  └──────────────────────┬───────────────────────┘
-                                         │
-                                         ▼
-                  ┌──────────────────────────────────────────────┐
-                  │          Business Policy Layer               │
-                  │  • Brand Protection (Kavya's rule)           │
-                  │  • Private Label Boost on Generic (Farah)    │
-                  │  • Price Filter Adherence                    │
-                  │  • Inventory Availability (Sandeep vs Farah) │
-                  └──────────────────────┬───────────────────────┘
-                                         │
-                                         ▼
-                  ┌──────────────────────────────────────────────┐
-                  │              Top 10 Ranked SKUs              │
-                  └──────────────────────────────────────────────┘
-```
 
-### Key Components
+### Architectural Layer Breakdown
 
-1. **Inverted Index & BM25 Scoring**:
-   - Every product's name, brand, category, size, and description are indexed with field-specific weights (`name: 4x`, `brand: 3x`, `category: 2x`, `desc: 1x`).
-   - BM25 handles term frequency saturation and document length normalization.
+#### Layer 1: Ingestion & Data Hygiene Engine
+- **Automated Startup Ingestion:** Ingests `catalog.csv`, `inventory.csv`, and `search_log.jsonl` dynamically. No hardcoded product IDs or manual intervention.
+- **Price Anomaly Rectification:** Automatically detects prices from supplier `metro_feed` and select produce items that were entered in **paise** rather than rupees (e.g. ₹62.00 entered as `6200`, apples entered as `22264`), normalizing them down by $\div 100$.
 
-2. **Behavioral Search Log Mining**:
-   - The two months of click/purchase data in `search_log.jsonl` are mined during indexing.
-   - When past users searched a query (e.g. `pesara pappu` or `oil under 200`) and subsequently clicked/added a SKU to cart, that behavioral signal provides a strong direct relevance boost.
+#### Layer 2: Fast In-Memory Inverted Index
+- **Field-Weighted Indexing:** Builds an in-memory inverted index where tokens are weighted according to field hierarchy:
+  - Product Name: **4.0x**
+  - Brand: **3.0x**
+  - Category: **2.0x**
+  - Description: **1.0x**
+- **Smoothed BM25 Probabilistic Model:** Implements Okapi BM25 with term frequency saturation ($k_1 = 1.5$) and document length normalization ($b = 0.75$).
 
-3. **Typo Tolerance & Mobile Single-Thumb Typing**:
-   - For misspelled queries (e.g. `"MILK CHOCOLAATE"`, `"panner"`, `"biskut"`, `"tonned"`), the engine employs character sequence similarity matching on candidate tokens, preventing zero-result failures without needing slow external models.
+#### Layer 3: Query Understanding & Linguistic Intelligence
+- **Natural Language Budget Extractor:** Regex parser extracts pricing constraints (e.g. `"under 200"`, `"below 50"`, `"< 100"`), passing `max_price = 200` to the budget layer while stripping the constraint from text matching.
+- **Regional & Colloquial Synonym Resolver:** Hyderabad-specific linguistic mapper bridging Telugu and Hindi queries (`"pesara pappu"` $\rightarrow$ `"moong dal"`, `"venna"` $\rightarrow$ `"butter"`, `"paalu"` $\rightarrow$ `"milk"`, `"biyyam pindi"` $\rightarrow$ `"rice flour"`, `"munagakaya"` $\rightarrow$ `"drumstick"`).
+- **Brand Intent Detector:** Detects distinctive brand roots (`"godavari"` $\rightarrow$ `"godavari dairy"`, `"gomatha"`, `"deccan gold"`).
+- **Head Noun vs. Modifier Disambiguator:** Solves the "Milk" trap by verifying whether `"milk"` is the primary head noun (boosting Dairy liquid milk) or a flavor/ingredient modifier (e.g. `"milk chocolate"` boosting confectionery).
 
-4. **Intent & Budget Parser**:
-   - Automatically detects price constraints like `"under 200"`, `"below 50"`, `"< 100"`.
-   - Strips the constraint from the query text and applies a budget boost (`price <= max_price`) while heavily penalizing over-budget items.
+#### Layer 4: Multi-Signal Scoring Engine
+Computes a base relevance score using four complementary signals:
+$$\text{BaseScore}(p, q) = \text{BM25}(p, q) + S_{\text{fuzzy}} + S_{\text{behavioral}} + S_{\text{phrase}} + S_{\text{domain}} + S_{\text{pop}}$$
+- **BM25 Lexical Match:** Measures term overlap against the inverted index.
+- **Typo Tolerance ($S_{\text{fuzzy}}$):** Character sequence matcher catching mobile single-thumb typos (e.g. `"MILK CHOCOLAATE"`, `"panner"`, `"biskut"`) for words $\ge 4$ characters with similarity $\ge 0.8$.
+- **Behavioral Boost ($S_{\text{behavioral}}$):** Ingests historical clicks and add-to-carts from `search_log.jsonl`, rewarding products that real users clicked when searching that query.
+- **Exact Phrase Match ($S_{\text{phrase}}$):** Extra boost if the query appears verbatim as a substring or prefix of the product name.
+- **Global Popularity Prior ($S_{\text{pop}}$):** Dampened log-scaled prior ($\log(1 + \text{clicks})$) for frequently purchased products.
+
+#### Layer 5: Business Policy & Re-Ranking Layer
+Applies real-world e-commerce policy multipliers to the base score:
+$$\text{FinalScore}(p, q) = \text{BaseScore}(p, q) \times M_{\text{brand}} \times M_{\text{budget}} \times M_{\text{stock}}$$
+- **Brand Protection Multiplier ($M_{\text{brand}}$):** If user searched a brand, that brand receives $3.0\times$ while private label *Thela Select* is demoted ($0.3\times$). If generic, *Thela Select* receives a $1.3\times$ margin boost.
+- **Budget Multiplier ($M_{\text{budget}}$):** If a price filter is parsed, products with $\text{price} \le \text{max\_price}$ receive $2.5\times$, while over-budget products are penalized ($0.05\times$).
+- **Stock Availability Multiplier ($M_{\text{stock}}$):** In-stock active products receive $1.0\times$. Out-of-stock active products receive $0.05\times$ (pushed to the bottom). Discontinued products receive $0.01\times$.
+
+#### Layer 6: Presentation & Serving Interfaces
+- **FastAPI Web UI (`app.py`):** Single search box with debounced real-time querying, visual stock pills, and intent tags.
+- **Batch Evaluation Runner (`batch_search.py`):** Headless CLI parsing `queries.txt` and streaming `results.jsonl`.
+- **Interactive Terminal CLI (`cli.py`):** Standalone console tool for terminal-based query inspection.
+
+---
 
 ---
 
