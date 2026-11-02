@@ -6,7 +6,10 @@ Built for the **Two Theta Entry-level Developer Take-Home Assignment**.
 
 ---
 
-## Quickstart & How to Run
+## Live Deployment & Quickstart
+
+- **Live Production URL:** **[https://thelawala-search.vercel.app](https://thelawala-search.vercel.app)**
+- **API Endpoint:** `https://thelawala-search.vercel.app/api/search?q=milk`
 
 No external APIs, cloud services, or complex databases are required. All dependencies run locally on standard Python 3.10+.
 

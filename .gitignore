@@ -6,3 +6,6 @@ venv/
 .venv/
 scratch/
 .DS_Store
+
+.vercel
+.env*

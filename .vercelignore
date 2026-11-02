@@ -1,0 +1,6 @@
+.git
+.gitignore
+scratch/
+__pycache__/
+*.pyc
+test_search.py

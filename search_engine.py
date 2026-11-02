@@ -1,6 +1,7 @@
 import csv
 import json
 import math
+import os
 import re
 from collections import Counter, defaultdict
 
@@ -122,9 +123,23 @@ class ThelawalaSearchEngine:
     def __init__(self, catalog_path="thelawala-search-data/catalog.csv",
                  inventory_path="thelawala-search-data/inventory.csv",
                  search_log_path="thelawala-search-data/search_log.jsonl"):
-        self.catalog_path = catalog_path
-        self.inventory_path = inventory_path
-        self.search_log_path = search_log_path
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        def resolve_path(p):
+            if not p:
+                return p
+            if os.path.isabs(p):
+                return p
+            if os.path.exists(p):
+                return p
+            alt = os.path.join(base_dir, p)
+            if os.path.exists(alt):
+                return alt
+            return alt
+
+        self.catalog_path = resolve_path(catalog_path)
+        self.inventory_path = resolve_path(inventory_path)
+        self.search_log_path = resolve_path(search_log_path)
         
         self.products = {}          # sku_id -> product dict
         self.inventory = {}         # sku_id -> inventory dict
